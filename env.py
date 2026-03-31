@@ -12,6 +12,7 @@ class MobileUIEnvironment:
         self._current_screen = "MainActivity"
         self._form_state = {"name": "", "email": "", "password": ""}
         self._missing_a11y_nodes = ["img_profile_avatar", "btn_favorite_post"]
+        self._is_dark_mode_on = False
         
         # Load the initial view hierarchy based on the task
         self._root_view = self._build_initial_ui()
@@ -33,23 +34,44 @@ class MobileUIEnvironment:
             return UIElement(
                 node_id="feed_layout", class_name="RecyclerView",
                 children=[
-                    # Missing content_description!
                     UIElement(node_id="img_profile_avatar", class_name="ImageView", is_clickable=True), 
                     UIElement(node_id="text_post_body", class_name="TextView", text="Check out my new app project!"),
-                    # Missing content_description!
                     UIElement(node_id="btn_favorite_post", class_name="ImageButton", is_clickable=True),
-                    # Has content_description (Correct)
                     UIElement(node_id="btn_share", class_name="ImageButton", content_description="Share post", is_clickable=True)
                 ]
             )
         else:
-            # Default to Task 1 (Easy) UI from previous step
+            # Default to Task 1 (Easy) UI
             self._current_screen = "MainActivity"
-            return UIElement(node_id="root", class_name="FrameLayout", children=[...]) # Truncated for brevity
+            return UIElement(
+                node_id="root_layout",
+                class_name="FrameLayout",
+                children=[
+                    UIElement(node_id="btn_home", class_name="Button", text="Home", is_clickable=True),
+                    UIElement(node_id="btn_settings", class_name="ImageButton", content_description="Navigate to Settings", is_clickable=True)
+                ]
+            )
+
+    def _build_settings_ui(self) -> UIElement:
+        """The UI tree when the user navigates to the Settings screen."""
+        return UIElement(
+            node_id="settings_layout",
+            class_name="LinearLayout",
+            children=[
+                UIElement(
+                    node_id="switch_dark_mode",
+                    class_name="Switch",
+                    text="Dark Mode",
+                    content_description="Toggle dark theme",
+                    is_clickable=True
+                )
+            ]
+        )
 
     def reset(self) -> Observation:
         self.current_step = 0
         self._form_state = {"name": "", "email": "", "password": ""}
+        self._is_dark_mode_on = False
         self._root_view = self._build_initial_ui()
         return self.state()
 
@@ -79,16 +101,35 @@ class MobileUIEnvironment:
         if self.current_step >= self.max_steps:
             return StepResult(observation=self.state(), reward=0.0, done=True, info={"error": "Max steps exceeded."})
 
+        # --- Task 1 (Easy) ---
+        if self.task_id == "task_1_easy":
+            if action.action_type == "tap":
+                if action.target_node_id == "btn_settings" and self._current_screen == "MainActivity":
+                    self._current_screen = "SettingsActivity"
+                    self._root_view = self._build_settings_ui()
+                    reward = 0.3
+                    system_message = "Navigated to Settings."
+                elif action.target_node_id == "switch_dark_mode" and self._current_screen == "SettingsActivity":
+                    self._is_dark_mode_on = True
+                    reward = 0.7
+                    done = True
+                    system_message = "Dark mode enabled. Task complete."
+                else:
+                    reward = -0.1
+                    system_message = f"Invalid tap on {action.target_node_id}."
+            else:
+                reward = -0.1
+                system_message = "Invalid action type for this screen."
+
         # --- Task 2 (Medium): Form Filling ---
-        if self.task_id == "task_2_medium":
+        elif self.task_id == "task_2_medium":
             if action.action_type == "input_text" and action.target_node_id and action.input_value:
                 field_map = {"input_name": "name", "input_email": "email", "input_password": "password"}
-                
                 if action.target_node_id in field_map:
                     key = field_map[action.target_node_id]
                     self._form_state[key] = action.input_value
                     self._update_ui_text(self._root_view, action.target_node_id, action.input_value)
-                    reward = 0.2  # Partial reward for filling a field
+                    reward = 0.2
                     system_message = f"Entered text into {action.target_node_id}."
                 else:
                     reward = -0.1
@@ -96,7 +137,7 @@ class MobileUIEnvironment:
 
             elif action.action_type == "tap" and action.target_node_id == "btn_submit":
                 if all(len(v) > 0 for v in self._form_state.values()):
-                    reward = 0.4  # Final reward for successful submission (0.2 * 3 + 0.4 = 1.0 total)
+                    reward = 0.4
                     done = True
                     system_message = "Registration successful!"
                 else:
@@ -113,11 +154,9 @@ class MobileUIEnvironment:
                 false_positives = len(reported - actual)
                 false_negatives = len(actual - reported)
                 
-                # Calculate precision and recall
                 precision = true_positives / (true_positives + false_positives) if (true_positives + false_positives) > 0 else 0.0
                 recall = true_positives / (true_positives + false_negatives) if (true_positives + false_negatives) > 0 else 0.0
                 
-                # Calculate F1 Score for the reward (0.0 to 1.0)
                 if precision + recall > 0:
                     f1_score = 2 * (precision * recall) / (precision + recall)
                 else:
@@ -127,7 +166,7 @@ class MobileUIEnvironment:
                 done = True
                 system_message = f"Audit submitted. Precision: {precision:.2f}, Recall: {recall:.2f}, F1: {reward:.2f}"
             else:
-                reward = -0.05  # Slight penalty for wasting steps looking around
+                reward = -0.05
                 system_message = "Exploration step recorded. Use 'submit_audit' when ready."
 
         return StepResult(
