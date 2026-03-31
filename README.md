@@ -1,3 +1,11 @@
+---
+title: OpenEnv Mobile UI Auditor
+emoji: 🤖
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+pinned: false
+---
 # OpenEnv: Mobile UI Navigation & Accessibility Auditing
 
 This repository contains a fully compliant, real-world OpenEnv environment simulating a mobile application's view hierarchy. It is designed to train and evaluate AI agents on practical, day-to-day software testing and accessibility auditing tasks.
