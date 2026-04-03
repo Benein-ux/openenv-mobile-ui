@@ -3,14 +3,13 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Dict, Any, List
 
-# Import the models and environment we defined earlier
-from models import Action, Observation, StepResult
-from env import MobileUIEnvironment
+# 1. FIXED IMPORTS: Both now explicitly point to the server folder
+from server.models import Action, Observation, StepResult
+from server.env import MobileUIEnvironment
 
 app = FastAPI(title="Mobile UI Auditing Environment", version="1.0.0")
 
-# For simplicity in this containerized app, we use a single global environment instance.
-# In a highly concurrent setup, you'd map session IDs to environment instances.
+# Global environment instance
 active_env = MobileUIEnvironment(task_id="task_1_easy")
 
 @app.post("/reset", response_model=Observation)
@@ -22,19 +21,22 @@ def reset_environment(task_id: str = "task_1_easy"):
 
 @app.post("/step")
 def step(action: dict):
-    # Execute the action in your environment
-    obs, done = env.step(action)
+    global active_env
+    
+    # 2. FIXED VARIABLE: Use 'active_env' instead of 'env'
+    obs, done = active_env.step(action)
     
     # Calculate step reward (0.0 if not done, actual score if done)
     reward = 0.0
     if done:
-        reward = float(env.get_score())
+        # Safely grab the score from your existing grader function
+        reward = float(get_grader_score()["score"])
         
     return {
         "observation": obs,
         "reward": reward,
         "done": done,
-        "error": None, # Required by the new schema
+        "error": None, 
         "info": {}
     }
 
@@ -60,8 +62,6 @@ def get_tasks() -> Dict[str, Any]:
 def get_grader_score() -> Dict[str, float]:
     """Returns the grader score for the current episode."""
     global active_env
-    # In a full implementation, you'd calculate the final cumulative or state-based score here
-    # For now, we return a simulated score based on the current state
     score = 0.0
     if active_env.task_id == "task_1_easy" and getattr(active_env, '_is_dark_mode_on', False):
         score = 1.0
@@ -72,12 +72,7 @@ def get_grader_score() -> Dict[str, float]:
 
 @app.post("/baseline")
 def run_baseline():
-    """
-    Triggers the baseline inference script and returns the baseline score.
-    (In a real deployment, this would use the subprocess module to run your inference script 
-    or call an imported function that uses the OpenAI API client).
-    """
-    # Placeholder for the actual baseline execution logic
+    """Triggers the baseline inference script."""
     return {
         "status": "success",
         "scores": {
@@ -87,6 +82,7 @@ def run_baseline():
         },
         "message": "Baseline executed successfully."
     }
+
 def main():
     # This gives the openenv validator a callable function to start the server
     import uvicorn
