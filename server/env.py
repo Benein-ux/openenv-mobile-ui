@@ -1,6 +1,6 @@
 import copy
 from typing import Dict, Any, List
-from models import Observation, Action, StepResult, UIElement
+from server.models import Observation, Action, StepResult, UIElement
 
 class MobileUIEnvironment:
     def __init__(self, task_id: str = "task_1_easy"):
