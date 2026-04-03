@@ -1,3 +1,4 @@
+import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Dict, Any, List
@@ -19,15 +20,23 @@ def reset_environment(task_id: str = "task_1_easy"):
     active_env = MobileUIEnvironment(task_id=task_id)
     return active_env.reset()
 
-@app.post("/step", response_model=StepResult)
-def step_environment(action: Action):
-    """Executes an action in the environment and returns the result."""
-    global active_env
-    try:
-        result = active_env.step(action)
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+@app.post("/step")
+def step(action: dict):
+    # Execute the action in your environment
+    obs, done = env.step(action)
+    
+    # Calculate step reward (0.0 if not done, actual score if done)
+    reward = 0.0
+    if done:
+        reward = float(env.get_score())
+        
+    return {
+        "observation": obs,
+        "reward": reward,
+        "done": done,
+        "error": None, # Required by the new schema
+        "info": {}
+    }
 
 @app.get("/state", response_model=Observation)
 def get_state():
@@ -78,3 +87,10 @@ def run_baseline():
         },
         "message": "Baseline executed successfully."
     }
+def main():
+    # This gives the openenv validator a callable function to start the server
+    import uvicorn
+    uvicorn.run("server.app:app", host="0.0.0.0", port=7860)
+
+if __name__ == "__main__":
+    main()

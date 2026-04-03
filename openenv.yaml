@@ -1,5 +1,5 @@
 version: "1.0"
-name: "mobile-ui-auditor"
+name: "mobile_ui_auditor"
 description: "A simulated mobile view hierarchy environment for UI navigation, form filling, and accessibility auditing."
 domain: "Software Testing & Automation"
 tags:
