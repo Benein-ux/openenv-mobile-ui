@@ -31,9 +31,6 @@ def log_end(success: bool, steps: int, score: float, rewards: list) -> None:
     print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
 
 def run_task(task_id: str, max_steps: int = 10):
-    # ✅ MOVED IT HERE: The client is only created when the task actually starts
-    client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
-    
     log_start(task=task_id, env=BENCHMARK, model=MODEL_NAME)
     
     rewards = []
@@ -42,6 +39,7 @@ def run_task(task_id: str, max_steps: int = 10):
     success = False
     
     try:
+        client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
         response = requests.post(f"{BASE_URL}/reset", params={"task_id": task_id}, timeout=30)
         obs = response.json()
         
