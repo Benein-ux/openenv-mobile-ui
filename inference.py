@@ -6,7 +6,8 @@ from openai import OpenAI
 # 1. Safe Variables
 API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
 MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-7B-Instruct"
-HF_TOKEN = os.getenv("HF_TOKEN") or "EMPTY_TOKEN"
+# ✅ CLAUDE'S FIX: Use API_KEY instead of HF_TOKEN
+API_KEY = os.getenv("API_KEY") or "EMPTY_TOKEN"
 
 # 2. Allow Validator to inject its local container URL
 BASE_URL = os.getenv("BASE_URL") or "https://benein-openenv-mobile-ui.hf.space"
@@ -38,26 +39,23 @@ def run_task(task_id: str, max_steps: int = 10):
     
     # Initialize inside function to avoid global scope import crashes
     try:
-        client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
+        client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
     except Exception:
-        pass # Will fail naturally in the loop if client is totally broken
+        pass 
 
     # 3. Independent Try/Except for the Environment Reset
     try:
         response = requests.post(f"{BASE_URL}/reset", params={"task_id": task_id}, timeout=30)
         obs = response.json()
     except Exception as e:
-        # If environment is blocked by validator, create a dummy observation 
-        # so the loop still runs and PINGS THE LLM PROXY!
         obs = {"error": "Environment offline", "details": str(e)}
 
-    # 4. The Loop (Guaranteed to run at least once now)
+    # 4. The Loop
     for step in range(1, max_steps + 1):
         steps_taken = step
         user_prompt = f"Task: {task_id}\nObservation:\n{json.dumps(obs)}\n\nNext Action?"
         
         try:
-            # THIS is the call the Validator is looking for!
             completion = client.chat.completions.create(
                 model=MODEL_NAME,
                 messages=[
@@ -89,7 +87,6 @@ def run_task(task_id: str, max_steps: int = 10):
             reward = step_resp.get("reward", 0.0)
             done = step_resp.get("done", True)
         except Exception:
-            # If environment offline, force end after 1 step
             reward = 0.0
             done = True
             
