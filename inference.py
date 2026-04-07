@@ -6,7 +6,7 @@ from openai import OpenAI
 # Required Environment Variables
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-7B-Instruct")
-HF_TOKEN = os.getenv("HF_TOKEN", "hf_YOUR_TOKEN_HERE") # Replace for local testing
+HF_TOKEN = os.getenv("HF_TOKEN") or "EMPTY_TOKEN"
 
 # Your environment URL
 BASE_URL = "https://benein-openenv-mobile-ui.hf.space"
