@@ -4,8 +4,8 @@ import requests
 from openai import OpenAI
 
 # Required Environment Variables
-API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-7B-Instruct")
+API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
+MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-7B-Instruct"
 HF_TOKEN = os.getenv("HF_TOKEN") or "EMPTY_TOKEN"
 
 # Your environment URL
