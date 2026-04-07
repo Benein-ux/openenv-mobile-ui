@@ -3,14 +3,13 @@ import json
 import requests
 from openai import OpenAI
 
-# 1. Safe Variables
-API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
-MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-7B-Instruct"
-# ✅ CLAUDE'S FIX: Use API_KEY instead of HF_TOKEN
-API_KEY = os.getenv("API_KEY") or "EMPTY_TOKEN"
+# 1. NO FALLBACKS. Do exactly what the validator asks.
+API_BASE_URL = os.environ.get("API_BASE_URL")
+API_KEY = os.environ.get("API_KEY")
+MODEL_NAME = os.environ.get("MODEL_NAME", "Qwen/Qwen2.5-7B-Instruct")
 
-# 2. Allow Validator to inject its local container URL
-BASE_URL = os.getenv("BASE_URL") or "https://benein-openenv-mobile-ui.hf.space"
+# 2. Your Environment (Safe to keep default)
+BASE_URL = os.environ.get("BASE_URL", "https://benein-openenv-mobile-ui.hf.space")
 BENCHMARK = "mobile_ui_auditor"
 
 SYSTEM_PROMPT = """
@@ -37,25 +36,21 @@ def run_task(task_id: str, max_steps: int = 10):
     steps_taken = 0
     score = 0.0
     
-    # Initialize inside function to avoid global scope import crashes
-    try:
-        client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
-    except Exception:
-        pass 
+    # Initialize exactly as they requested
+    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 
-    # 3. Independent Try/Except for the Environment Reset
     try:
         response = requests.post(f"{BASE_URL}/reset", params={"task_id": task_id}, timeout=30)
         obs = response.json()
     except Exception as e:
         obs = {"error": "Environment offline", "details": str(e)}
 
-    # 4. The Loop
     for step in range(1, max_steps + 1):
         steps_taken = step
         user_prompt = f"Task: {task_id}\nObservation:\n{json.dumps(obs)}\n\nNext Action?"
         
         try:
+            # This will now hit THEIR proxy, not Hugging Face
             completion = client.chat.completions.create(
                 model=MODEL_NAME,
                 messages=[
@@ -80,7 +75,6 @@ def run_task(task_id: str, max_steps: int = 10):
             action_str = "error"
             error = str(e)
 
-        # Independent Try/Except for taking a step
         try:
             step_resp = requests.post(f"{BASE_URL}/step", json=action_payload, timeout=30).json()
             obs = step_resp.get("observation", {})
