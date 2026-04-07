@@ -3,16 +3,15 @@ import json
 import requests
 from openai import OpenAI
 
-# Required Environment Variables
+# It is safe to define strings globally
 API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
 MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-7B-Instruct"
 HF_TOKEN = os.getenv("HF_TOKEN") or "EMPTY_TOKEN"
 
-# Your environment URL
 BASE_URL = "https://benein-openenv-mobile-ui.hf.space"
 BENCHMARK = "mobile_ui_auditor"
 
-client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
+# ❌ REMOVED the global 'client = OpenAI(...)' from here!
 
 SYSTEM_PROMPT = """
 You are an autonomous UI testing agent. 
@@ -32,6 +31,9 @@ def log_end(success: bool, steps: int, score: float, rewards: list) -> None:
     print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
 
 def run_task(task_id: str, max_steps: int = 10):
+    # ✅ MOVED IT HERE: The client is only created when the task actually starts
+    client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
+    
     log_start(task=task_id, env=BENCHMARK, model=MODEL_NAME)
     
     rewards = []
@@ -40,7 +42,7 @@ def run_task(task_id: str, max_steps: int = 10):
     success = False
     
     try:
-        response = requests.post(f"{BASE_URL}/reset", params={"task_id": task_id})
+        response = requests.post(f"{BASE_URL}/reset", params={"task_id": task_id}, timeout=30)
         obs = response.json()
         
         for step in range(1, max_steps + 1):
@@ -48,6 +50,7 @@ def run_task(task_id: str, max_steps: int = 10):
             user_prompt = f"Task: {task_id}\nObservation:\n{json.dumps(obs)}\n\nNext Action?"
             
             try:
+                # The client variable is now used safely inside this function
                 completion = client.chat.completions.create(
                     model=MODEL_NAME,
                     messages=[
@@ -55,8 +58,7 @@ def run_task(task_id: str, max_steps: int = 10):
                         {"role": "user", "content": user_prompt}
                     ],
                     temperature=0.0
-                )
-                
+                )                
                 raw_action = completion.choices[0].message.content.strip()
                 if "```json" in raw_action:
                     raw_action = raw_action.split("```json")[1].split("```")[0].strip()
