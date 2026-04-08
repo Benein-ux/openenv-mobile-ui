@@ -8,24 +8,30 @@ tags:
   - "ui-automation"
   - "agentic-testing"
 
-# Define the tasks so the OpenEnv orchestrator knows what to test
+# THIS IS WHAT WAS MISSING — tells validator how to run inference and what vars to inject
+inference:
+  entrypoint: "python inference.py"
+  env:
+    - API_BASE_URL
+    - API_KEY
+    - MODEL_NAME
+
 tasks:
   - id: "task_1_easy"
     name: "Enable Dark Mode"
     description: "Navigate from the Home screen to Settings and toggle the Dark Mode switch."
     difficulty: "easy"
-  
+
   - id: "task_2_medium"
     name: "User Registration"
     description: "Fill out the registration form with valid data and submit it."
     difficulty: "medium"
-  
+
   - id: "task_3_hard"
     name: "Accessibility Audit"
     description: "Scan the Feed UI and submit an audit report of all node_ids missing a content_description."
     difficulty: "hard"
 
-# Specify where the validation scripts can find your endpoints
 api:
   port: 7860
   endpoints:
