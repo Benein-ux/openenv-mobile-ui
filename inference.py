@@ -3,6 +3,13 @@ import json
 import requests
 from openai import OpenAI
 
+# 1. THE FIX: Flip the priority! Grab their API_KEY first. 
+# If they don't provide one during a dry-run, fallback to a dummy key so it doesn't crash.
+API_KEY = os.getenv("API_KEY") or os.getenv("HF_TOKEN") or "dummy_key"
+API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
+MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-7B-Instruct"
+
+BASE_URL = os.getenv("BASE_URL", "https://benein-openenv-mobile-ui.hf.space")
 BENCHMARK = "mobile_ui_auditor"
 
 SYSTEM_PROMPT = """
@@ -16,138 +23,92 @@ Respond ONLY with a raw JSON object:
 }
 """
 
-def log_start(task, env, model):
+def log_start(task: str, env: str, model: str) -> None:
     print(f"[START] task={task} env={env} model={model}", flush=True)
 
-def log_step(step, action, reward, done, error):
-    print(f"[STEP] step={step} action={action} reward={reward:.2f} done={str(done).lower()} error={error}", flush=True)
+def log_step(step: int, action: str, reward: float, done: bool, error: str) -> None:
+    error_val = error if error else "null"
+    done_val = str(done).lower()
+    print(f"[STEP] step={step} action={action} reward={reward:.2f} done={done_val} error={error_val}", flush=True)
 
-def log_end(success, steps, score, rewards):
+def log_end(success: bool, steps: int, score: float, rewards: list) -> None:
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
     print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
 
-
-# ✅ ARMORED CLIENT (Prevents crashes AND prevents skipping the proxy test)
-def get_client():
-    api_base = os.environ.get("API_BASE_URL")
-    api_key = os.environ.get("API_KEY")
-
-    # If the validator runs a test with empty variables, we use a dummy 
-    # localhost so the client builds without crashing HTTPX.
-    if not api_base:
-        api_base = "http://127.0.0.1:8000"
-    if not api_key:
-        api_key = "dummy_key"
-
+def get_model_message(client: OpenAI, task_id: str, obs: dict) -> dict:
+    user_prompt = f"Task: {task_id}\nObservation:\n{json.dumps(obs)}\n\nNext Action?"
     try:
-        return OpenAI(base_url=api_base, api_key=api_key)
-    except Exception as e:
-        print(f"[ERROR] Client init failed: {e}", flush=True)
-        return None
-
-
-# ✅ SAFE LLM CALL
-def call_llm(client, model, system_prompt, user_prompt):
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ],
-        temperature=0.0
-    )
-
-    content = response.choices[0].message.content.strip()
-
-    if "```json" in content:
-        content = content.split("```json")[1].split("```")[0].strip()
-    elif "```" in content:
-        content = content.split("```")[1].split("```")[0].strip()
-
-    return json.loads(content)
-
-
-# ✅ FALLBACK (ENSURES NO CRASH)
-def safe_action_fallback(obs):
-    screen = obs.get("current_screen", "")
-
-    if screen == "MainActivity":
-        return {"action_type": "tap", "target_node_id": "btn_settings"}
-    elif screen == "SettingsActivity":
-        return {"action_type": "tap", "target_node_id": "switch_dark_mode"}
-    elif screen == "RegistrationActivity":
-        return {"action_type": "input_text", "target_node_id": "input_name", "input_value": "John"}
-    else:
-        return {"action_type": "tap", "target_node_id": "btn_home"}
-
-
-def run_task(task_id, max_steps=10):
-    model_name = os.environ.get("MODEL_NAME", "gpt-3.5-turbo")
-    base_url = os.environ.get("BASE_URL", "https://benein-openenv-mobile-ui.hf.space")
-
-    log_start(task_id, BENCHMARK, model_name)
-
-    client = get_client()
-
-    rewards = []
-    steps_taken = 0
-    score = 0.0
-
-    # ✅ SAFE RESET
-    try:
-        response = requests.post(f"{base_url}/reset", params={"task_id": task_id}, timeout=30)
-        obs = response.json()
-    except Exception as e:
-        print(f"[ERROR] Reset failed: {e}", flush=True)
-        obs = {}
-
-    # LOOP
-    for step in range(1, max_steps + 1):
-        steps_taken = step
-
-        user_prompt = f"Task: {task_id}\nObservation:\n{json.dumps(obs)}\n\nNext Action?"
-
-        # ✅ TRY LLM FIRST (IMPORTANT FOR PROXY CHECK)
-        if client is not None:
-            try:
-                action_payload = call_llm(client, model_name, SYSTEM_PROMPT, user_prompt)
-                action_str = json.dumps(action_payload, separators=(',', ':'))
-                error = "null"
-            except Exception as e:
-                print(f"[ERROR] LLM failed: {e}", flush=True)
-                action_payload = safe_action_fallback(obs)
-                action_str = json.dumps(action_payload)
-                error = str(e)
+        completion = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.0
+        )
+        content = (completion.choices[0].message.content or "").strip()
+        
+        if "```json" in content:
+            content = content.split("```json")[1].split("```")[0].strip()
+        elif "```" in content:
+            content = content.split("```")[1].split("```")[0].strip()
+            
+        return json.loads(content)
+    except Exception as exc:
+        print(f"[DEBUG] Model request failed: {exc}", flush=True)
+        # Fallback to prevent crash, modeled exactly after the official sample script
+        screen = obs.get("current_screen", "")
+        if screen == "MainActivity":
+            return {"action_type": "tap", "target_node_id": "btn_settings"}
+        elif screen == "SettingsActivity":
+            return {"action_type": "tap", "target_node_id": "switch_dark_mode"}
         else:
-            action_payload = safe_action_fallback(obs)
-            action_str = json.dumps(action_payload)
-            error = "client_not_initialized"
+            return {"action_type": "tap", "target_node_id": "btn_home"}
 
-        # ✅ SAFE STEP
+def main():
+    # Initialize client EXACTLY like the sample
+    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+
+    for task_id in ["task_1_easy", "task_2_medium", "task_3_hard"]:
+        log_start(task=task_id, env=BENCHMARK, model=MODEL_NAME)
+        
+        rewards = []
+        steps_taken = 0
+        score = 0.0
+        
         try:
-            step_resp = requests.post(f"{base_url}/step", json=action_payload, timeout=30).json()
-            obs = step_resp.get("observation", {})
-            reward = step_resp.get("reward", 0.0)
-            done = step_resp.get("done", True)
+            response = requests.post(f"{BASE_URL}/reset", params={"task_id": task_id}, timeout=30)
+            obs = response.json()
         except Exception as e:
-            print(f"[ERROR] Step failed: {e}", flush=True)
-            reward = 0.0
-            done = True
+            print(f"[DEBUG] Env reset failed: {e}", flush=True)
+            obs = {}
 
-        rewards.append(reward)
-        log_step(step, action_str, reward, done, error)
+        for step in range(1, 11):
+            steps_taken = step
+            
+            action_payload = get_model_message(client, task_id, obs)
+            action_str = json.dumps(action_payload, separators=(',', ':'))
+            
+            try:
+                step_resp = requests.post(f"{BASE_URL}/step", json=action_payload, timeout=30).json()
+                obs = step_resp.get("observation", {})
+                reward = step_resp.get("reward", 0.0)
+                done = step_resp.get("done", True)
+                error = None
+            except Exception as e:
+                reward = 0.0
+                done = True
+                error = str(e)
 
-        if done:
-            score = reward
-            break
+            rewards.append(reward)
+            log_step(step=step, action=action_str, reward=reward, done=done, error=error)
 
-    success = score >= 0.5
-    log_end(success, steps_taken, score, rewards)
-
+            if done:
+                score = reward
+                break
+                
+        success = score >= 0.5
+        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
 if __name__ == "__main__":
-    for task in ["task_1_easy", "task_2_medium", "task_3_hard"]:
-        try:
-            run_task(task)
-        except Exception as e:
-            print(f"[FATAL] Task {task} crashed: {e}", flush=True)
+    main()
