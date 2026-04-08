@@ -100,13 +100,23 @@ class MobileUIEnvironment:
         return False
 
     def step(self, action: Action) -> StepResult:
+        # --- CRITICAL FIX 1: Handle dicts from FastAPI ---
+        if isinstance(action, dict):
+            class ActionWrapper:
+                def __init__(self, d):
+                    self.action_type = d.get("action_type")
+                    self.target_node_id = d.get("target_node_id")
+                    self.input_value = d.get("input_value")
+                    self.audit_report = d.get("audit_report")
+            action = ActionWrapper(action)
+
         self.current_step += 1
-        reward = 0.0
+        reward = 0.001  # Start at minimum valid score
         done = False
         system_message = "Action executed."
 
         if self.current_step >= self.max_steps:
-            return StepResult(observation=self.state(), reward=_clamp_reward(0.0), done=True, info={"error": "Max steps exceeded."})
+            return StepResult(observation=self.state(), reward=_clamp_reward(0.001), done=True, info={"error": "Max steps exceeded."})
 
         # --- Task 1 (Easy) ---
         if self.task_id == "task_1_easy":
@@ -118,14 +128,14 @@ class MobileUIEnvironment:
                     system_message = "Navigated to Settings."
                 elif action.target_node_id == "switch_dark_mode" and self._current_screen == "SettingsActivity":
                     self._is_dark_mode_on = True
-                    reward = 0.7  # Already in valid range
+                    reward = 0.7 
                     done = True
                     system_message = "Dark mode enabled. Task complete."
                 else:
-                    reward = -0.1  # Negative rewards are OK, but clamp positive ones
+                    reward = 0.001 # Minimum valid score for failure
                     system_message = f"Invalid tap on {action.target_node_id}."
             else:
-                reward = -0.1
+                reward = 0.001
                 system_message = "Invalid action type for this screen."
 
         # --- Task 2 (Medium): Form Filling ---
@@ -139,16 +149,16 @@ class MobileUIEnvironment:
                     reward = 0.2
                     system_message = f"Entered text into {action.target_node_id}."
                 else:
-                    reward = -0.1
+                    reward = 0.001
                     system_message = "Invalid input target."
 
             elif action.action_type == "tap" and action.target_node_id == "btn_submit":
                 if all(len(v) > 0 for v in self._form_state.values()):
-                    reward = 0.4  # Already in valid range
+                    reward = 0.4
                     done = True
                     system_message = "Registration successful!"
                 else:
-                    reward = -0.1
+                    reward = 0.001
                     system_message = "Validation Error: All fields are required."
 
         # --- Task 3 (Hard): Accessibility Audit ---
@@ -169,18 +179,16 @@ class MobileUIEnvironment:
                 else:
                     f1_score = 0.0
 
-                # CRITICAL FIX: Clamp F1 score to strictly (0, 1)
-                reward = _clamp_reward(round(f1_score, 2))
+                reward = f1_score
                 done = True
                 system_message = f"Audit submitted. Precision: {precision:.2f}, Recall: {recall:.2f}, F1: {reward:.2f}"
             else:
-                reward = -0.05
+                reward = 0.001
                 system_message = "Exploration step recorded. Use 'submit_audit' when ready."
 
-        # Final clamp: ensure ALL rewards are in (0, 1) for positive values
-        # Negative rewards can stay negative (they indicate failure)
-        if reward > 0:
-            reward = _clamp_reward(reward)
+        # --- CRITICAL FIX 2: UNCONDITIONALLY CLAMP REWARD ---
+        # No more negative values, no more 0.0, no more 1.0. Everything must be clamped.
+        reward = _clamp_reward(reward)
 
         return StepResult(
             observation=Observation(
