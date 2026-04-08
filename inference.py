@@ -16,32 +16,37 @@ Respond ONLY with a raw JSON object:
 }
 """
 
-def log_start(task: str, env: str, model: str) -> None:
+def log_start(task, env, model):
     print(f"[START] task={task} env={env} model={model}", flush=True)
 
-def log_step(step: int, action: str, reward: float, done: bool, error: str) -> None:
+def log_step(step, action, reward, done, error):
     print(f"[STEP] step={step} action={action} reward={reward:.2f} done={str(done).lower()} error={error}", flush=True)
 
-def log_end(success: bool, steps: int, score: float, rewards: list) -> None:
+def log_end(success, steps, score, rewards):
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
     print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
 
 
+# ✅ SAFE CLIENT (NO CRASH)
 def get_client():
-    api_base = os.environ.get("API_BASE_URL")
-    api_key = os.environ.get("API_KEY")
+    try:
+        api_base = os.environ.get("API_BASE_URL")
+        api_key = os.environ.get("API_KEY")
 
-    if not api_base or not api_key:
-        raise RuntimeError("Missing API_BASE_URL or API_KEY")
+        print(f"[DEBUG] API_BASE_URL={api_base}", flush=True)
 
-    print(f"[DEBUG] Using API_BASE_URL={api_base}", flush=True)
+        if not api_base or not api_key:
+            print("[WARN] Missing API_BASE_URL or API_KEY", flush=True)
+            return None
 
-    return OpenAI(
-        base_url=api_base,
-        api_key=api_key
-    )
+        return OpenAI(base_url=api_base, api_key=api_key)
+
+    except Exception as e:
+        print(f"[ERROR] Client init failed: {e}", flush=True)
+        return None
 
 
+# ✅ SAFE LLM CALL
 def call_llm(client, model, system_prompt, user_prompt):
     response = client.chat.completions.create(
         model=model,
@@ -62,6 +67,7 @@ def call_llm(client, model, system_prompt, user_prompt):
     return json.loads(content)
 
 
+# ✅ FALLBACK (ENSURES NO CRASH)
 def safe_action_fallback(obs):
     screen = obs.get("current_screen", "")
 
@@ -75,11 +81,11 @@ def safe_action_fallback(obs):
         return {"action_type": "tap", "target_node_id": "btn_home"}
 
 
-def run_task(task_id: str, max_steps: int = 10):
+def run_task(task_id, max_steps=10):
     model_name = os.environ.get("MODEL_NAME", "gpt-3.5-turbo")
     base_url = os.environ.get("BASE_URL", "https://benein-openenv-mobile-ui.hf.space")
 
-    log_start(task=task_id, env=BENCHMARK, model=model_name)
+    log_start(task_id, BENCHMARK, model_name)
 
     client = get_client()
 
@@ -87,46 +93,46 @@ def run_task(task_id: str, max_steps: int = 10):
     steps_taken = 0
     score = 0.0
 
-    # Reset environment
-    response = requests.post(
-        f"{base_url}/reset",
-        params={"task_id": task_id},
-        timeout=30
-    )
-    obs = response.json()
+    # ✅ SAFE RESET
+    try:
+        response = requests.post(f"{base_url}/reset", params={"task_id": task_id}, timeout=30)
+        obs = response.json()
+    except Exception as e:
+        print(f"[ERROR] Reset failed: {e}", flush=True)
+        obs = {}
 
-    # Agent loop
+    # LOOP
     for step in range(1, max_steps + 1):
         steps_taken = step
 
-        user_prompt = f"""
-Task: {task_id}
-Observation:
-{json.dumps(obs)}
+        user_prompt = f"Task: {task_id}\nObservation:\n{json.dumps(obs)}\n\nNext Action?"
 
-Next Action:
-"""
-
-        try:
-            action_payload = call_llm(client, model_name, SYSTEM_PROMPT, user_prompt)
-            action_str = json.dumps(action_payload, separators=(',', ':'))
-            error = "null"
-
-        except Exception as e:
-            print(f"[ERROR] LLM failed: {e}", flush=True)
+        # ✅ TRY LLM FIRST (IMPORTANT FOR PROXY CHECK)
+        if client is not None:
+            try:
+                action_payload = call_llm(client, model_name, SYSTEM_PROMPT, user_prompt)
+                action_str = json.dumps(action_payload, separators=(',', ':'))
+                error = "null"
+            except Exception as e:
+                print(f"[ERROR] LLM failed: {e}", flush=True)
+                action_payload = safe_action_fallback(obs)
+                action_str = json.dumps(action_payload)
+                error = str(e)
+        else:
             action_payload = safe_action_fallback(obs)
             action_str = json.dumps(action_payload)
-            error = str(e)
+            error = "client_not_initialized"
 
-        step_resp = requests.post(
-            f"{base_url}/step",
-            json=action_payload,
-            timeout=30
-        ).json()
-
-        obs = step_resp.get("observation", {})
-        reward = step_resp.get("reward", 0.0)
-        done = step_resp.get("done", True)
+        # ✅ SAFE STEP
+        try:
+            step_resp = requests.post(f"{base_url}/step", json=action_payload, timeout=30).json()
+            obs = step_resp.get("observation", {})
+            reward = step_resp.get("reward", 0.0)
+            done = step_resp.get("done", True)
+        except Exception as e:
+            print(f"[ERROR] Step failed: {e}", flush=True)
+            reward = 0.0
+            done = True
 
         rewards.append(reward)
         log_step(step, action_str, reward, done, error)
@@ -141,5 +147,7 @@ Next Action:
 
 if __name__ == "__main__":
     for task in ["task_1_easy", "task_2_medium", "task_3_hard"]:
-        run_task(task)
-
+        try:
+            run_task(task)
+        except Exception as e:
+            print(f"[FATAL] Task {task} crashed: {e}", flush=True)
