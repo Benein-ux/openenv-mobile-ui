@@ -2,18 +2,25 @@ import copy
 from typing import Dict, Any, List
 from server.models import Observation, Action, StepResult, UIElement
 
+# Epsilon to ensure scores are strictly within (0, 1)
+_EPSILON = 0.001
+
+def _clamp_reward(reward: float) -> float:
+    """Clamp reward to strictly (0, 1) range as required by validator."""
+    return max(_EPSILON, min(1.0 - _EPSILON, reward))
+
 class MobileUIEnvironment:
     def __init__(self, task_id: str = "task_1_easy"):
         self.task_id = task_id
         self.current_step = 0
         self.max_steps = 15
-        
+
         # Internal state tracking
         self._current_screen = "MainActivity"
         self._form_state = {"name": "", "email": "", "password": ""}
         self._missing_a11y_nodes = ["img_profile_avatar", "btn_favorite_post"]
         self._is_dark_mode_on = False
-        
+
         # Load the initial view hierarchy based on the task
         self._root_view = self._build_initial_ui()
 
@@ -34,7 +41,7 @@ class MobileUIEnvironment:
             return UIElement(
                 node_id="feed_layout", class_name="RecyclerView",
                 children=[
-                    UIElement(node_id="img_profile_avatar", class_name="ImageView", is_clickable=True), 
+                    UIElement(node_id="img_profile_avatar", class_name="ImageView", is_clickable=True),
                     UIElement(node_id="text_post_body", class_name="TextView", text="Check out my new app project!"),
                     UIElement(node_id="btn_favorite_post", class_name="ImageButton", is_clickable=True),
                     UIElement(node_id="btn_share", class_name="ImageButton", content_description="Share post", is_clickable=True)
@@ -99,7 +106,7 @@ class MobileUIEnvironment:
         system_message = "Action executed."
 
         if self.current_step >= self.max_steps:
-            return StepResult(observation=self.state(), reward=0.0, done=True, info={"error": "Max steps exceeded."})
+            return StepResult(observation=self.state(), reward=_clamp_reward(0.0), done=True, info={"error": "Max steps exceeded."})
 
         # --- Task 1 (Easy) ---
         if self.task_id == "task_1_easy":
@@ -111,11 +118,11 @@ class MobileUIEnvironment:
                     system_message = "Navigated to Settings."
                 elif action.target_node_id == "switch_dark_mode" and self._current_screen == "SettingsActivity":
                     self._is_dark_mode_on = True
-                    reward = 0.7
+                    reward = 0.7  # Already in valid range
                     done = True
                     system_message = "Dark mode enabled. Task complete."
                 else:
-                    reward = -0.1
+                    reward = -0.1  # Negative rewards are OK, but clamp positive ones
                     system_message = f"Invalid tap on {action.target_node_id}."
             else:
                 reward = -0.1
@@ -137,7 +144,7 @@ class MobileUIEnvironment:
 
             elif action.action_type == "tap" and action.target_node_id == "btn_submit":
                 if all(len(v) > 0 for v in self._form_state.values()):
-                    reward = 0.4
+                    reward = 0.4  # Already in valid range
                     done = True
                     system_message = "Registration successful!"
                 else:
@@ -149,25 +156,31 @@ class MobileUIEnvironment:
             if action.action_type == "submit_audit" and action.audit_report is not None:
                 reported = set(action.audit_report)
                 actual = set(self._missing_a11y_nodes)
-                
+
                 true_positives = len(reported.intersection(actual))
                 false_positives = len(reported - actual)
                 false_negatives = len(actual - reported)
-                
+
                 precision = true_positives / (true_positives + false_positives) if (true_positives + false_positives) > 0 else 0.0
                 recall = true_positives / (true_positives + false_negatives) if (true_positives + false_negatives) > 0 else 0.0
-                
+
                 if precision + recall > 0:
                     f1_score = 2 * (precision * recall) / (precision + recall)
                 else:
                     f1_score = 0.0
-                    
-                reward = round(f1_score, 2)
+
+                # CRITICAL FIX: Clamp F1 score to strictly (0, 1)
+                reward = _clamp_reward(round(f1_score, 2))
                 done = True
                 system_message = f"Audit submitted. Precision: {precision:.2f}, Recall: {recall:.2f}, F1: {reward:.2f}"
             else:
                 reward = -0.05
                 system_message = "Exploration step recorded. Use 'submit_audit' when ready."
+
+        # Final clamp: ensure ALL rewards are in (0, 1) for positive values
+        # Negative rewards can stay negative (they indicate failure)
+        if reward > 0:
+            reward = _clamp_reward(reward)
 
         return StepResult(
             observation=Observation(
