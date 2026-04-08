@@ -63,7 +63,7 @@ def run_task(task_id: str, max_steps: int = 10):
 
     rewards = []
     steps_taken = 0
-    score = 0.0
+    score = 0.001
 
     # Reset environment
     response = requests.post(f"{base_url}/reset", params={"task_id": task_id}, timeout=30)
@@ -130,7 +130,7 @@ def run_task(task_id: str, max_steps: int = 10):
             reward = step_resp.get("reward", 0.0)
             done = step_resp.get("done", True)
         except Exception as e:
-            reward = 0.0
+            reward = 0.001
             done = True
             error = f"{error}; ENV_ERROR: {str(e)}" if error else f"ENV_ERROR: {str(e)}"
 
