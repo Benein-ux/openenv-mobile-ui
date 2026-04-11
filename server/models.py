@@ -14,10 +14,17 @@ class UIElement(BaseModel):
     children: List['UIElement'] = Field(default_factory=list, description="Nested child views")
 
 class Observation(BaseModel):
-    """The state returned to the agent after every step."""
-    current_screen: str = Field(description="Name of the current active screen")
-    view_tree: UIElement = Field(description="The root node of the current UI hierarchy")
-    system_message: Optional[str] = Field(default=None, description="Feedback from the last action (e.g., 'Keyboard opened', 'Invalid ID')")
+    current_screen: str
+    view_tree: UIElement
+    system_message: Optional[str] = None
+    
+    # === NEW: Mobile-realistic observation fields ===
+    viewport_height: int = Field(default=1920, description="Simulated screen height in pixels")
+    viewport_width: int = Field(default=1080, description="Simulated screen width in pixels")
+    scroll_offset: int = Field(default=0, description="Current vertical scroll position in pixels")
+    focus_node_id: Optional[str] = Field(default=None, description="Node ID of currently focused element")
+    is_loading: bool = Field(default=False, description="Whether the screen is in a loading state")
+    # ===============================================
 
 # Resolve forward references for recursive UIElement
 UIElement.model_rebuild()
